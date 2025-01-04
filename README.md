@@ -26,3 +26,9 @@ Download tinystories dataset from [here](https://huggingface.co/datasets/ronenel
 - [nanogpt](https://github.com/karpathy/nanoGPT)
 - [pytorch_transformer](https://github.com/hkproj/pytorch-transformer)
 - [simple_transformer](https://github.com/xjdr-alt/simple_transformer/blob/main/simple_transformer.py)
+
+## Credits
+
+- Claude
+- ChatGPT
+- CoPilot
