@@ -1,6 +1,9 @@
 # tiny-transformer
 
-Implementation of a next character predicting language model using transformer architecture.
+Implementation of a next character predicting language model using multi-head attention transformer.
+
+![demo](assets/demo.gif)
+
 
 ## Requirements
 
