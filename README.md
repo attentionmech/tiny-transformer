@@ -5,7 +5,7 @@ Implementation of a next character predicting language model using transformer a
 ## Requirements
 
 ```zsh
-pip install torch einops
+pip install torch einops numpy
 ```
 
 ## Usage

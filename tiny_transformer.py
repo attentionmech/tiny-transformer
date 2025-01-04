@@ -327,6 +327,7 @@ def main():
     print(f"Inference Length: {args.inference_length}")
     print(f"Inference Text: {args.inference_text}")
     print(f"Optimizer: {args.optimizer}")
+    print(f"Dataset: {args.dataset}")
     print("------------------\n\n")
 
     if os.path.exists(args.dataset):
@@ -334,9 +335,11 @@ def main():
         data = read_data(args.dataset, num_rows=args.num_rows)
         print("Dataset loaded.")
     else:
-        print("Dataset not found. Exiting...")
-        raise SystemExit
-
+        tiny_stories_download_link = "https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/TinyStories-valid.txt"
+        print("Download the tinystories dataset from:", tiny_stories_download_link)
+        print(f"Dataset {args.dataset} not found. Exiting...")
+        return
+        
     chars, char_to_idx, idx_to_char, data_indices = preprocess_data(data)
     vocab_size = len(chars)
 
