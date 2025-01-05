@@ -192,7 +192,7 @@ class CharTransformerModel(nn.Module):
     def generate(
         self, start_text, char_to_idx, idx_to_char, max_length=100, temperature=0.3
     ):
-        input_seq = [char_to_idx[char] for char in start_text]
+        input_seq = [char_to_idx.get(char, char_to_idx[' ']) for char in start_text]
         input_seq = (
             torch.tensor(input_seq).unsqueeze(1).to(next(self.parameters()).device)
         )
@@ -255,11 +255,12 @@ def train_model(
                 )
                 print(f"\n{generated_text}\n")
 
-        avg_train_loss = total_train_loss / len(train_dataloader)
+        if len(train_dataloader):
+            avg_train_loss = total_train_loss / len(train_dataloader)
 
-        print(
-            f"Epoch {epoch + 1}/{num_epochs}, Avg. Train Loss: {avg_train_loss:.4f}\n"
-        )
+            print(
+                f"Epoch {epoch + 1}/{num_epochs}, Avg. Train Loss: {avg_train_loss:.4f}\n"
+            )
 
         total_steps = len(test_dataloader)
 
@@ -287,11 +288,13 @@ def train_model(
                     )
                     print(f"\n{generated_text}\n")
 
-        avg_test_loss = total_test_loss / len(test_dataloader)
+        
+        if len(test_dataloader):
+            avg_test_loss = total_test_loss / len(test_dataloader)
 
-        print(
-            f"Epoch {epoch + 1}/{num_epochs}, Avg. Train Loss: {avg_train_loss:.4f}  Avg. Test Loss: {avg_test_loss:.4f}\n"
-        )
+            print(
+                f"Epoch {epoch + 1}/{num_epochs}, Avg. Train Loss: {avg_train_loss:.4f}  Avg. Test Loss: {avg_test_loss:.4f}\n"
+            )
 
         torch.save(model.state_dict(), "model.pth")
 
