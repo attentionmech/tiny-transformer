@@ -29,6 +29,6 @@ A sample dataset is present in assets/ path. Download tinystories full dataset f
 
 ## Credits
 
+- Vscode Copilot
 - Claude
 - ChatGPT
-- CoPilot
