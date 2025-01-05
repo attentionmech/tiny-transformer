@@ -5,8 +5,13 @@ from torch.utils.data import Dataset, DataLoader
 import argparse
 import os
 from einops import rearrange
-import torch.nn.init as init
 
+
+def train_test_split(data, test_ratio=0.1):
+    split_idx = int(len(data) * (1 - test_ratio))
+    train_data = data[:split_idx]
+    test_data = data[split_idx:]
+    return train_data, test_data
 
 
 def read_data(file_path, num_rows=None):
@@ -39,6 +44,7 @@ class CharDataset(Dataset):
         target_seq = self.data[idx + 1 : idx + self.seq_length + 1]
         return torch.tensor(input_seq), torch.tensor(target_seq)
 
+
 def create_causal_mask(seq_len):
     mask = torch.tril(torch.ones((seq_len, seq_len)))
     mask = mask.unsqueeze(0).unsqueeze(0)  # Shape: [1, 1, seq_len, seq_len]
@@ -62,7 +68,6 @@ class MultiHeadSelfAttention(nn.Module):
 
         self.fc_out = nn.Linear(emb_size, emb_size)
         self.attn_dropout = nn.Dropout(dropout)
-
 
     def forward(self, values, keys, query, mask=None):
 
@@ -91,7 +96,7 @@ class MultiHeadSelfAttention(nn.Module):
         )
 
         if mask is not None:
-            score = score.masked_fill(mask == 0, float('-inf'))
+            score = score.masked_fill(mask == 0, float("-inf"))
 
         attention = torch.softmax(score / (self.head_dim ** (1 / 2)), dim=-1)
 
@@ -166,20 +171,27 @@ class CharTransformerModel(nn.Module):
 
     def forward(self, x):
         batch_size, seq_len = x.shape
-        
-        positions = torch.arange(0, seq_len, device=x.device).unsqueeze(1).expand(seq_len, batch_size).T
+
+        positions = (
+            torch.arange(0, seq_len, device=x.device)
+            .unsqueeze(1)
+            .expand(seq_len, batch_size)
+            .T
+        )
         embedded = self.embedding(x) + self.positional_encoding(positions)
 
         mask = create_causal_mask(seq_len).to(x.device)
         transformer_output = embedded
-        
+
         for block in self.transformer_blocks:
             transformer_output = block(transformer_output, mask)
 
         output = self.fc_out(transformer_output)
         return output
 
-    def generate(self, start_text, char_to_idx, idx_to_char, max_length=100, temperature=0.3):
+    def generate(
+        self, start_text, char_to_idx, idx_to_char, max_length=100, temperature=0.3
+    ):
         input_seq = [char_to_idx[char] for char in start_text]
         input_seq = (
             torch.tensor(input_seq).unsqueeze(1).to(next(self.parameters()).device)
@@ -188,11 +200,11 @@ class CharTransformerModel(nn.Module):
         for _ in range(max_length):
             output = self(input_seq)
             last_char_logits = output[-1, 0, :]
-            
+
             last_char_logits = last_char_logits / temperature
-            
+
             probs = torch.softmax(last_char_logits, dim=-1)
-            
+
             predicted_idx = torch.multinomial(probs, 1).item()
             predicted_char = idx_to_char[predicted_idx]
             generated_text += predicted_char
@@ -204,7 +216,8 @@ class CharTransformerModel(nn.Module):
 
 def train_model(
     model,
-    dataloader,
+    train_dataloader,
+    test_dataloader,
     criterion,
     optimizer,
     num_epochs,
@@ -215,24 +228,23 @@ def train_model(
     inference_text=None,
     device="cpu",
 ):
-    total_steps = len(dataloader)
     for epoch in range(num_epochs):
-        total_loss = 0
-        for step, (input_seq, target_seq) in enumerate(dataloader):
-            
+        total_steps = len(train_dataloader)
+
+        total_train_loss = 0
+
+        for step, (input_seq, target_seq) in enumerate(train_dataloader):
             input_seq, target_seq = input_seq.to(device), target_seq.to(device)
-            
-            
             optimizer.zero_grad()
             output = model(input_seq)
             loss = criterion(output.reshape(-1, vocab_size), target_seq.reshape(-1))
             loss.backward()
             optimizer.step()
-            total_loss += loss.item()
+            total_train_loss += loss.item()
 
             if step % args.inference_interval == 0:
                 print(
-                    f"Epoch [{epoch + 1}/{num_epochs}], Step [{step + 1}/{total_steps}], Loss: {loss.item():.4f}"
+                    f"Epoch [{epoch + 1}/{num_epochs}], Step [{step + 1}/{total_steps}], Train Loss: {loss.item():.4f}"
                 )
                 generated_text = model.generate(
                     inference_text or "",
@@ -243,8 +255,43 @@ def train_model(
                 )
                 print(f"\n{generated_text}\n")
 
-        avg_loss = total_loss / len(dataloader)
-        print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {avg_loss:.4f}\n")
+        avg_train_loss = total_train_loss / len(train_dataloader)
+
+        print(
+            f"Epoch {epoch + 1}/{num_epochs}, Avg. Train Loss: {avg_train_loss:.4f}\n"
+        )
+
+        total_steps = len(test_dataloader)
+
+        model.eval()
+        total_test_loss = 0
+        with torch.no_grad():
+            for step, (input_seq, target_seq) in enumerate(test_dataloader):
+                input_seq, target_seq = input_seq.to(device), target_seq.to(device)
+                output = model(input_seq)
+                test_loss = criterion(
+                    output.reshape(-1, vocab_size), target_seq.reshape(-1)
+                )
+                total_test_loss += test_loss.item()
+
+                if step % args.inference_interval == 0:
+                    print(
+                        f"Epoch [{epoch + 1}/{num_epochs}], Step [{step + 1}/{total_steps}], Test Loss: {loss.item():.4f}"
+                    )
+                    generated_text = model.generate(
+                        inference_text or "",
+                        char_to_idx,
+                        idx_to_char,
+                        max_length=args.inference_length,
+                        temperature=args.temperature,
+                    )
+                    print(f"\n{generated_text}\n")
+
+        avg_test_loss = total_test_loss / len(test_dataloader)
+
+        print(
+            f"Epoch {epoch + 1}/{num_epochs}, Avg. Train Loss: {avg_train_loss:.4f}  Avg. Test Loss: {avg_test_loss:.4f}\n"
+        )
 
 
 def main():
@@ -310,7 +357,9 @@ def main():
         choices=["adam", "sgd", "rmsprop"],
         help="Optimizer type (default adam)",
     )
-    parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate (default 0.0)")
+    parser.add_argument(
+        "--dropout", type=float, default=0.2, help="Dropout rate (default 0.0)"
+    )
     parser.add_argument(
         "--seed", type=int, default=None, help="Random seed for reproducibility"
     )
@@ -326,30 +375,32 @@ def main():
         default="Once upon a time",
         help="Text to start inference from (default: Once upon a time)",
     )
-    
+
     parser.add_argument(
         "--device",
         type=str,
         default="mps",
         choices=["cpu", "mps"],
-        help="Device to run the model on (default: cpu)"
+        help="Device to run the model on (default: cpu)",
     )
-    
+
     parser.add_argument(
         "--temperature",
         type=float,
         default=0.3,
-        help="Temperature for sampling during inference (default 0.3)"
+        help="Temperature for sampling during inference (default 0.3)",
     )
-    
-    
+
     args = parser.parse_args()
 
     if args.seed is not None:
         torch.manual_seed(args.seed)
 
-    device = torch.device(args.device if torch.backends.mps.is_available() or args.device == "cpu" else "cpu")
-
+    device = torch.device(
+        args.device
+        if torch.backends.mps.is_available() or args.device == "cpu"
+        else "cpu"
+    )
 
     print("\n\n------------------")
     print(f"Configuration:\n")
@@ -379,12 +430,21 @@ def main():
         print("Download the tinystories dataset from:", tiny_stories_download_link)
         print(f"Dataset {args.dataset} not found. Exiting...")
         return
-        
+
     chars, char_to_idx, idx_to_char, data_indices = preprocess_data(data)
     vocab_size = len(chars)
 
-    dataset = CharDataset(data_indices, seq_length=args.seq_length)
-    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+    train_data, test_data = train_test_split(data_indices, test_ratio=0.1)
+
+    train_dataset = CharDataset(train_data, seq_length=args.seq_length)
+    test_dataset = CharDataset(test_data, seq_length=args.seq_length)
+
+    train_dataloader = DataLoader(
+        train_dataset, batch_size=args.batch_size, shuffle=True
+    )
+    test_dataloader = DataLoader(
+        test_dataset, batch_size=args.batch_size, shuffle=False
+    )
 
     model = CharTransformerModel(
         vocab_size,
@@ -395,12 +455,9 @@ def main():
         dropout=args.dropout,
         device=device,
     ).to(device)
-    
 
     for param in model.parameters():
         torch.nn.init.normal_(param, mean=0.0, std=0.02)
-
-
 
     criterion = nn.CrossEntropyLoss()
 
@@ -413,7 +470,8 @@ def main():
 
     train_model(
         model,
-        dataloader,
+        train_dataloader,
+        test_dataloader,
         criterion,
         optimizer,
         args.epochs,
@@ -422,10 +480,11 @@ def main():
         char_to_idx,
         idx_to_char,
         inference_text=args.inference_text,
-        device=device
+        device=device,
     )
 
-    torch.save(model.state_dict(), 'final.pth')
+    torch.save(model.state_dict(), "final.pth")
+
 
 if __name__ == "__main__":
     main()
