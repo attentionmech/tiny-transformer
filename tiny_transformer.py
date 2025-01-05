@@ -39,6 +39,11 @@ class CharDataset(Dataset):
         target_seq = self.data[idx + 1 : idx + self.seq_length + 1]
         return torch.tensor(input_seq), torch.tensor(target_seq)
 
+def create_causal_mask(seq_len):
+    mask = torch.tril(torch.ones((seq_len, seq_len)))
+    mask = mask.unsqueeze(0).unsqueeze(0)  # Shape: [1, 1, seq_len, seq_len]
+    return mask
+
 
 class MultiHeadSelfAttention(nn.Module):
     def __init__(self, emb_size, num_heads, dropout):
@@ -86,7 +91,8 @@ class MultiHeadSelfAttention(nn.Module):
         )
 
         if mask is not None:
-            score = score.masked_fill(mask == 0, float("-inf"))
+            score = score.masked_fill(mask == 0, float('-inf'))
+
         attention = torch.softmax(score / (self.head_dim ** (1 / 2)), dim=-1)
 
         attention = self.attn_dropout(attention)
@@ -162,13 +168,13 @@ class CharTransformerModel(nn.Module):
         batch_size, seq_len = x.shape
         
         positions = torch.arange(0, seq_len, device=x.device).unsqueeze(1).expand(seq_len, batch_size).T
-                
         embedded = self.embedding(x) + self.positional_encoding(positions)
 
+        mask = create_causal_mask(seq_len).to(x.device)
         transformer_output = embedded
         
         for block in self.transformer_blocks:
-            transformer_output = block(transformer_output)
+            transformer_output = block(transformer_output, mask)
 
         output = self.fc_out(transformer_output)
         return output
