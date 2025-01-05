@@ -287,7 +287,7 @@ def main():
     parser.add_argument(
         "--optimizer",
         type=str,
-        default="sgd",
+        default="adam",
         choices=["adam", "sgd", "rmsprop"],
         help="Optimizer type (default sgd)",
     )
