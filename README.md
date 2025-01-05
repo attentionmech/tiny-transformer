@@ -11,7 +11,7 @@ pip install torch einops numpy
 ## Usage
 
 ```zsh
-python tiny_transformer.py --epochs 10 --batch_size 16 --seq_length 32 --learning_rate 1e-4 --embedding_size 64 --num_heads 4 --num_layers 2 --hidden_size 128 --dataset tinystories.txt --inference_interval 100 --inference_length 200 --optimizer adam
+python tiny_transformer.py --epochs 10 --batch_size 16 --seq_length 32 --learning_rate 1e-4 --embedding_size 64 --num_heads 4 --num_layers 2 --hidden_size 128 --dataset assets/tinystories.txt --inference_interval 100 --inference_length 200 --optimizer adam
 ```
 
 ## Dataset

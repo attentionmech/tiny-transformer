@@ -298,7 +298,7 @@ def main():
     parser.add_argument(
         "--dataset",
         type=str,
-        default="tinystories.txt",
+        default=None,
         help="Dataset to use for training",
     )
     parser.add_argument(
@@ -330,7 +330,7 @@ def main():
     print(f"Dataset: {args.dataset}")
     print("------------------\n\n")
 
-    if os.path.exists(args.dataset):
+    if args.dataset and os.path.exists(args.dataset):
         print("Reading dataset...")
         data = read_data(args.dataset, num_rows=args.num_rows)
         print("Dataset loaded.")
