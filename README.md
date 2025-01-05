@@ -16,7 +16,7 @@ python tiny_transformer.py --epochs 10 --batch_size 16 --seq_length 32 --learnin
 
 ## Dataset
 
-Download tinystories dataset from [here](https://huggingface.co/datasets/roneneldan/TinyStories/tree/main) to play around.
+A sample dataset is present in assets/ path. Download tinystories full dataset from [here](https://huggingface.co/datasets/roneneldan/TinyStories/tree/main) to play around.
 
 ## References
 
