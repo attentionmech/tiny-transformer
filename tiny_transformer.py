@@ -179,7 +179,7 @@ class CharTransformerModel(nn.Module):
         output = self.fc_out(transformer_output)
         return output
 
-    def generate(self, start_text, char_to_idx, idx_to_char, max_length=100):
+    def generate(self, start_text, char_to_idx, idx_to_char, max_length=100, temperature=0.3):
         input_seq = [char_to_idx[char] for char in start_text]
         input_seq = (
             torch.tensor(input_seq).unsqueeze(1).to(next(self.parameters()).device)
@@ -188,7 +188,12 @@ class CharTransformerModel(nn.Module):
         for _ in range(max_length):
             output = self(input_seq)
             last_char_logits = output[-1, 0, :]
-            predicted_idx = torch.argmax(last_char_logits).item()
+            
+            last_char_logits = last_char_logits / temperature
+            
+            probs = torch.softmax(last_char_logits, dim=-1)
+            
+            predicted_idx = torch.multinomial(probs, 1).item()
             predicted_char = idx_to_char[predicted_idx]
             generated_text += predicted_char
             input_seq = torch.cat(
@@ -234,6 +239,7 @@ def train_model(
                     char_to_idx,
                     idx_to_char,
                     max_length=args.inference_length,
+                    temperature=args.temperature,
                 )
                 print(f"\n{generated_text}\n")
 
@@ -328,8 +334,13 @@ def main():
         choices=["cpu", "mps"],
         help="Device to run the model on (default: cpu)"
     )
-
     
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.3,
+        help="Temperature for sampling during inference (default 0.3)"
+    )
     
     
     args = parser.parse_args()
@@ -355,6 +366,7 @@ def main():
     print(f"Inference Text: {args.inference_text}")
     print(f"Optimizer: {args.optimizer}")
     print(f"Dataset: {args.dataset}")
+    print(f"Temperature: {args.temperature}")
     print(f"Device: {device}")
     print("------------------\n\n")
 
@@ -413,6 +425,7 @@ def main():
         device=device
     )
 
+    torch.save(model.state_dict(), 'final.pth')
 
 if __name__ == "__main__":
     main()
