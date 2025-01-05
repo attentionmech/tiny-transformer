@@ -231,7 +231,7 @@ def train_model(
 def main():
 
     parser = argparse.ArgumentParser(
-        description="Character-level Transformer Language Model Training"
+        description="tiny-transformer: Character-level Transformer Language Model Training"
     )
     parser.add_argument(
         "--epochs", type=int, default=1, help="Number of epochs (minimum 1)"
