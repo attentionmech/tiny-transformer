@@ -1,6 +1,6 @@
 # tiny-transformer
 
-Implementation of a next character predicting language model using multi-head attention transformer.
+Implementation of a next character predicting language model using multi-head attention transformer. The goal of this is to allow observation on what is the network's capability while training (inspired from nanoGPT train.py).
 
 ![demo](assets/demo.gif)
 
@@ -29,6 +29,6 @@ A sample dataset is present in assets/ path. Download tinystories full dataset f
 
 ## Credits
 
+- Vscode Copilot
 - Claude
 - ChatGPT
-- CoPilot
