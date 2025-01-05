@@ -269,7 +269,7 @@ def main():
     parser.add_argument(
         "--num_rows",
         type=int,
-        default=100,
+        default=None,
         help="Number of rows from dataset to use (default 100)",
     )
     parser.add_argument(
