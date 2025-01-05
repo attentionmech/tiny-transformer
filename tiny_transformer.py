@@ -234,37 +234,37 @@ def main():
         description="tiny-transformer: Character-level Transformer Language Model Training"
     )
     parser.add_argument(
-        "--epochs", type=int, default=1, help="Number of epochs (minimum 1)"
+        "--epochs", type=int, default=10, help="Number of epochs (default 10)"
     )
     parser.add_argument(
         "--batch_size",
         type=int,
         default=2,
-        help="Batch size (minimum 2 for batch processing)",
+        help="Batch size (default 2)",
     )
     parser.add_argument(
-        "--seq_length", type=int, default=16, help="Sequence length (minimum 16)"
+        "--seq_length", type=int, default=16, help="Sequence length (default 16)"
     )
     parser.add_argument(
         "--learning_rate", type=float, default=1e-3, help="Learning rate (default 1e-3)"
     )
     parser.add_argument(
-        "--embedding_size", type=int, default=32, help="Embedding size (minimum 32)"
+        "--embedding_size", type=int, default=32, help="Embedding size (default 32)"
     )
     parser.add_argument(
-        "--num_heads", type=int, default=2, help="Number of attention heads (minimum 2)"
+        "--num_heads", type=int, default=2, help="Number of attention heads (default 2)"
     )
     parser.add_argument(
         "--num_layers",
         type=int,
         default=1,
-        help="Number of transformer layers (minimum 1)",
+        help="Number of transformer layers (default 1)",
     )
     parser.add_argument(
         "--hidden_size",
         type=int,
         default=64,
-        help="Hidden size of transformer layers (minimum 64)",
+        help="Hidden size of transformer layers",
     )
     parser.add_argument(
         "--num_rows",
@@ -289,9 +289,9 @@ def main():
         type=str,
         default="sgd",
         choices=["adam", "sgd", "rmsprop"],
-        help="Optimizer type",
+        help="Optimizer type (default sgd)",
     )
-    parser.add_argument("--dropout", type=float, default=0.0, help="Dropout rate")
+    parser.add_argument("--dropout", type=float, default=0.0, help="Dropout rate (default 0.0)")
     parser.add_argument(
         "--seed", type=int, default=None, help="Random seed for reproducibility"
     )
@@ -305,7 +305,7 @@ def main():
         "--inference_text",
         type=str,
         default="Once upon a time",
-        help="Text to start inference from",
+        help="Text to start inference from (default: Once upon a time)",
     )
     args = parser.parse_args()
 
@@ -320,8 +320,8 @@ def main():
     print(f"Learning Rate: {args.learning_rate}")
     print(f"Embedding Size: {args.embedding_size}")
     print(f"Number of Heads: {args.num_heads}")
-    print(f"Number of Layers: {args.num_layers}")
-    print(f"Hidden Size: {args.hidden_size}")
+    print(f"Number of Layers(Blocks): {args.num_layers}")
+    print(f"MLP Layer Size: {args.hidden_size}")
     print(f"Number of Rows: {args.num_rows}")
     print(f"Inference Interval: {args.inference_interval}")
     print(f"Inference Length: {args.inference_length}")
