@@ -293,6 +293,8 @@ def train_model(
             f"Epoch {epoch + 1}/{num_epochs}, Avg. Train Loss: {avg_train_loss:.4f}  Avg. Test Loss: {avg_test_loss:.4f}\n"
         )
 
+        torch.save(model.state_dict(), "model.pth")
+
 
 def main():
 
@@ -300,13 +302,13 @@ def main():
         description="tiny-transformer: Character-level Transformer Language Model Training"
     )
     parser.add_argument(
-        "--epochs", type=int, default=10, help="Number of epochs (default 10)"
+        "--epochs", type=int, default=100, help="Number of epochs (default 100)"
     )
     parser.add_argument(
         "--batch_size",
         type=int,
         default=64,
-        help="Batch size (default 2)",
+        help="Batch size (default 64)",
     )
     parser.add_argument(
         "--seq_length", type=int, default=16, help="Sequence length (default 16)"
@@ -315,7 +317,7 @@ def main():
         "--learning_rate", type=float, default=1e-3, help="Learning rate (default 1e-3)"
     )
     parser.add_argument(
-        "--embedding_size", type=int, default=30, help="Embedding size (default 32)"
+        "--embedding_size", type=int, default=300, help="Embedding size (default 300)"
     )
     parser.add_argument(
         "--num_heads", type=int, default=6, help="Number of attention heads (default 6)"
@@ -330,7 +332,7 @@ def main():
         "--hidden_size",
         type=int,
         default=64,
-        help="Hidden size of transformer layers",
+        help="Hidden size of transformer layers (default 64)",
     )
     parser.add_argument(
         "--num_rows",
@@ -341,7 +343,7 @@ def main():
     parser.add_argument(
         "--inference_interval",
         type=int,
-        default=200,
+        default=500,
         help="Number of iterations between inference",
     )
     parser.add_argument(
@@ -358,7 +360,7 @@ def main():
         help="Optimizer type (default adam)",
     )
     parser.add_argument(
-        "--dropout", type=float, default=0.2, help="Dropout rate (default 0.0)"
+        "--dropout", type=float, default=0.2, help="Dropout rate (default 0.2)"
     )
     parser.add_argument(
         "--seed", type=int, default=None, help="Random seed for reproducibility"
@@ -387,7 +389,7 @@ def main():
     parser.add_argument(
         "--temperature",
         type=float,
-        default=0.3,
+        default=0.6,
         help="Temperature for sampling during inference (default 0.3)",
     )
 
@@ -482,8 +484,6 @@ def main():
         inference_text=args.inference_text,
         device=device,
     )
-
-    torch.save(model.state_dict(), "final.pth")
 
 
 if __name__ == "__main__":
