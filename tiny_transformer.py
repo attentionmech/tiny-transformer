@@ -5,6 +5,8 @@ from torch.utils.data import Dataset, DataLoader
 import argparse
 import os
 from einops import rearrange
+import torch.nn.init as init
+
 
 
 def read_data(file_path, num_rows=None):
@@ -39,7 +41,7 @@ class CharDataset(Dataset):
 
 
 class MultiHeadSelfAttention(nn.Module):
-    def __init__(self, emb_size, num_heads):
+    def __init__(self, emb_size, num_heads, dropout):
         super(MultiHeadSelfAttention, self).__init__()
         self.num_heads = num_heads
         self.emb_size = emb_size
@@ -54,6 +56,8 @@ class MultiHeadSelfAttention(nn.Module):
         self.value = nn.Linear(emb_size, emb_size)
 
         self.fc_out = nn.Linear(emb_size, emb_size)
+        self.attn_dropout = nn.Dropout(dropout)
+
 
     def forward(self, values, keys, query, mask=None):
 
@@ -85,6 +89,8 @@ class MultiHeadSelfAttention(nn.Module):
             score = score.masked_fill(mask == 0, float("-inf"))
         attention = torch.softmax(score / (self.head_dim ** (1 / 2)), dim=-1)
 
+        attention = self.attn_dropout(attention)
+
         out = torch.matmul(attention, values)
 
         out = rearrange(
@@ -101,16 +107,16 @@ class FeedForward(nn.Module):
         super(FeedForward, self).__init__()
         self.fc1 = nn.Linear(emb_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, emb_size)
-        self.relu = nn.ReLU()
+        self.gelu = nn.GELU()
 
     def forward(self, x):
-        return self.fc2(self.relu(self.fc1(x)))
+        return self.fc2(self.gelu(self.fc1(x)))
 
 
 class TransformerBlock(nn.Module):
     def __init__(self, emb_size, num_heads, hidden_size, dropout=0.1):
         super(TransformerBlock, self).__init__()
-        self.attention = MultiHeadSelfAttention(emb_size, num_heads)
+        self.attention = MultiHeadSelfAttention(emb_size, num_heads, dropout)
         self.feed_forward = FeedForward(emb_size, hidden_size)
 
         self.layer_norm1 = nn.LayerNorm(emb_size)
@@ -137,10 +143,11 @@ class CharTransformerModel(nn.Module):
         num_layers=1,
         hidden_size=64,
         dropout=0.1,
+        device="cpu",
     ):
         super(CharTransformerModel, self).__init__()
-        self.embedding = nn.Embedding(vocab_size, emb_size)
-        self.positional_encoding = nn.Embedding(1000, emb_size)
+        self.embedding = nn.Embedding(vocab_size, emb_size).to(device)
+        self.positional_encoding = nn.Embedding(1000, emb_size).to(device)
 
         self.transformer_blocks = nn.ModuleList(
             [
@@ -153,12 +160,9 @@ class CharTransformerModel(nn.Module):
 
     def forward(self, x):
         seq_len, batch_size = x.shape
-        positions = (
-            torch.arange(0, seq_len)
-            .unsqueeze(1)
-            .expand(seq_len, batch_size)
-            .to(x.device)
-        )
+        
+        positions = torch.arange(0, seq_len, device=x.device).unsqueeze(1).expand(seq_len, batch_size)
+
 
         embedded = self.embedding(x) + self.positional_encoding(positions)
 
@@ -198,11 +202,15 @@ def train_model(
     char_to_idx,
     idx_to_char,
     inference_text=None,
+    device="cpu",
 ):
     total_steps = len(dataloader)
     for epoch in range(num_epochs):
         total_loss = 0
         for step, (input_seq, target_seq) in enumerate(dataloader):
+            
+            input_seq, target_seq = input_seq.to(device), target_seq.to(device)
+            
             input_seq = input_seq.T
             target_seq = target_seq.T
             optimizer.zero_grad()
@@ -239,7 +247,7 @@ def main():
     parser.add_argument(
         "--batch_size",
         type=int,
-        default=2,
+        default=64,
         help="Batch size (default 2)",
     )
     parser.add_argument(
@@ -249,16 +257,16 @@ def main():
         "--learning_rate", type=float, default=1e-3, help="Learning rate (default 1e-3)"
     )
     parser.add_argument(
-        "--embedding_size", type=int, default=32, help="Embedding size (default 32)"
+        "--embedding_size", type=int, default=30, help="Embedding size (default 32)"
     )
     parser.add_argument(
-        "--num_heads", type=int, default=2, help="Number of attention heads (default 2)"
+        "--num_heads", type=int, default=6, help="Number of attention heads (default 6)"
     )
     parser.add_argument(
         "--num_layers",
         type=int,
-        default=1,
-        help="Number of transformer layers (default 1)",
+        default=6,
+        help="Number of transformer layers (default 6)",
     )
     parser.add_argument(
         "--hidden_size",
@@ -275,7 +283,7 @@ def main():
     parser.add_argument(
         "--inference_interval",
         type=int,
-        default=100,
+        default=200,
         help="Number of iterations between inference",
     )
     parser.add_argument(
@@ -289,9 +297,9 @@ def main():
         type=str,
         default="adam",
         choices=["adam", "sgd", "rmsprop"],
-        help="Optimizer type (default sgd)",
+        help="Optimizer type (default adam)",
     )
-    parser.add_argument("--dropout", type=float, default=0.0, help="Dropout rate (default 0.0)")
+    parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate (default 0.0)")
     parser.add_argument(
         "--seed", type=int, default=None, help="Random seed for reproducibility"
     )
@@ -307,10 +315,25 @@ def main():
         default="Once upon a time",
         help="Text to start inference from (default: Once upon a time)",
     )
+    
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="mps",
+        choices=["cpu", "mps"],
+        help="Device to run the model on (default: cpu)"
+    )
+
+    
+    
+    
     args = parser.parse_args()
 
     if args.seed is not None:
         torch.manual_seed(args.seed)
+
+    device = torch.device(args.device if torch.backends.mps.is_available() or args.device == "cpu" else "cpu")
+
 
     print("\n\n------------------")
     print(f"Configuration:\n")
@@ -322,12 +345,12 @@ def main():
     print(f"Number of Heads: {args.num_heads}")
     print(f"Number of Layers(Blocks): {args.num_layers}")
     print(f"MLP Layer Size: {args.hidden_size}")
-    print(f"Number of Rows: {args.num_rows}")
     print(f"Inference Interval: {args.inference_interval}")
     print(f"Inference Length: {args.inference_length}")
     print(f"Inference Text: {args.inference_text}")
     print(f"Optimizer: {args.optimizer}")
     print(f"Dataset: {args.dataset}")
+    print(f"Device: {device}")
     print("------------------\n\n")
 
     if args.dataset and os.path.exists(args.dataset):
@@ -353,7 +376,14 @@ def main():
         num_layers=args.num_layers,
         hidden_size=args.hidden_size,
         dropout=args.dropout,
-    )
+        device=device,
+    ).to(device)
+    
+
+    for param in model.parameters():
+        torch.nn.init.normal_(param, mean=0.0, std=0.02)
+
+
 
     criterion = nn.CrossEntropyLoss()
 
@@ -375,6 +405,7 @@ def main():
         char_to_idx,
         idx_to_char,
         inference_text=args.inference_text,
+        device=device
     )
 
 
