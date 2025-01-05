@@ -159,14 +159,14 @@ class CharTransformerModel(nn.Module):
         self.fc_out = nn.Linear(emb_size, vocab_size)
 
     def forward(self, x):
-        seq_len, batch_size = x.shape
+        batch_size, seq_len = x.shape
         
-        positions = torch.arange(0, seq_len, device=x.device).unsqueeze(1).expand(seq_len, batch_size)
-
-
+        positions = torch.arange(0, seq_len, device=x.device).unsqueeze(1).expand(seq_len, batch_size).T
+                
         embedded = self.embedding(x) + self.positional_encoding(positions)
 
         transformer_output = embedded
+        
         for block in self.transformer_blocks:
             transformer_output = block(transformer_output)
 
@@ -211,8 +211,7 @@ def train_model(
             
             input_seq, target_seq = input_seq.to(device), target_seq.to(device)
             
-            input_seq = input_seq.T
-            target_seq = target_seq.T
+            
             optimizer.zero_grad()
             output = model(input_seq)
             loss = criterion(output.reshape(-1, vocab_size), target_seq.reshape(-1))
