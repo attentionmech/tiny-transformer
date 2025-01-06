@@ -1,18 +1,19 @@
+import os
+import argparse
 import torch
+
+from einops import rearrange
 from torch import nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
-import argparse
-import os
-from einops import rearrange
-import torch
 from torch.utils.tensorboard import SummaryWriter
+from torch.optim.lr_scheduler import LambdaLR, CosineAnnealingLR
 
 
 def compute_grad_norms(model):
     grad_norms = {}
     for name, param in model.named_parameters():
-        if param.grad is not None:
+        if param.requires_grad and param.grad is not None:
             grad_norm = torch.norm(param.grad).item()
             grad_norms[name] = grad_norm
     return grad_norms
@@ -163,6 +164,7 @@ class CharTransformerModel(nn.Module):
     def __init__(
         self,
         vocab_size,
+        seq_len,
         emb_size=32,
         num_heads=2,
         num_layers=1,
@@ -172,7 +174,7 @@ class CharTransformerModel(nn.Module):
     ):
         super(CharTransformerModel, self).__init__()
         self.embedding = nn.Embedding(vocab_size, emb_size).to(device)
-        self.positional_encoding = nn.Embedding(1000, emb_size).to(device)
+        self.positional_encoding = nn.Embedding(seq_len, emb_size)
 
         self.transformer_blocks = nn.ModuleList(
             [
@@ -246,8 +248,11 @@ def train_model(
     writer = None
     if args.tensorboard:
         writer = SummaryWriter()
-    
+
     tstep = 0
+    scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=1e-6)
+
+    torch.save(model.state_dict(), f"model.pth")
 
     for epoch in range(num_epochs):
         total_train_loss = 0
@@ -273,7 +278,9 @@ def train_model(
                     if param.grad is not None:
                         writer.add_histogram(f"Gradients/{name}", param.grad, tstep)
                 for i, param_group in enumerate(optimizer.param_groups):
-                    writer.add_scalar(f"Learning_Rate/group_{i}", param_group['lr'], tstep)
+                    writer.add_scalar(
+                        f"Learning_Rate/group_{i}", param_group["lr"], tstep
+                    )
 
             if step % args.inference_interval == 0:
                 model.eval()
@@ -287,6 +294,8 @@ def train_model(
                     )
                     print(f"\n{generated_text}\n")
 
+        scheduler.step()
+
         model.eval()
         total_test_loss = 0
         with torch.no_grad():
@@ -296,11 +305,14 @@ def train_model(
                 test_loss = criterion(
                     output.reshape(-1, vocab_size), target_seq.reshape(-1)
                 )
+                if args.tensorboard:
+                    writer.add_scalar("Loss/Test", test_loss.item(), tstep)
+
                 total_test_loss += test_loss.item()
 
         test_length = len(test_dataloader)
         train_length = len(train_dataloader)
-        avg_test_loss = total_test_loss / test_length if test_length else float('nan')
+        avg_test_loss = total_test_loss / test_length if test_length else 0.0
         avg_train_loss = total_train_loss / train_length
 
         if args.tensorboard:
@@ -311,7 +323,7 @@ def train_model(
             f"Epoch {epoch + 1}/{num_epochs}, Avg. Train Loss: {avg_train_loss:.4f}, Avg. Test Loss: {avg_test_loss:.4f}"
         )
 
-        torch.save(model.state_dict(), f"model_epoch_{epoch+1}.pth")
+        torch.save(model.state_dict(), f"model.pth")
 
     if args.tensorboard:
         writer.close()
@@ -398,7 +410,7 @@ def main():
         default="Once upon a time",
         help="Text to start inference from (default: Once upon a time)",
     )
-    
+
     parser.add_argument(
         "--tensorboard",
         type=bool,
@@ -457,15 +469,9 @@ def main():
     print(f"Weight decay: {args.weight_decay}")
     print(f"Dropout: {args.dropout}")
     print(f"Device: {device}")
-    print("------------------\n\n")
-
-    if args.tensorboard:
-        print("Please run `tensorboard serve --logdir=runs/` on a separate terminal to monitor.")        
 
     if args.dataset and os.path.exists(args.dataset):
-        print("Reading dataset...")
         data = read_data(args.dataset, num_rows=args.num_rows)
-        print("Dataset loaded.")
     else:
         tiny_stories_download_link = "https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/TinyStories-valid.txt"
         print("Download the tinystories dataset from:", tiny_stories_download_link)
@@ -474,6 +480,9 @@ def main():
 
     chars, char_to_idx, idx_to_char, data_indices = preprocess_data(data)
     vocab_size = len(chars)
+
+    print(f"Vocabulary Size: {vocab_size}")
+    print("\n\n")
 
     train_data, test_data = train_test_split(data_indices, test_ratio=0.1)
 
@@ -489,6 +498,7 @@ def main():
 
     model = CharTransformerModel(
         vocab_size,
+        seq_len=args.seq_length,
         emb_size=args.embedding_size,
         num_heads=args.num_heads,
         num_layers=args.num_layers,
