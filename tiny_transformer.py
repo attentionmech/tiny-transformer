@@ -231,12 +231,13 @@ def train_model(
     inference_text=None,
     device="cpu",
 ):
+
     for epoch in range(num_epochs):
-        total_steps = len(train_dataloader)
 
         total_train_loss = 0
 
         for step, (input_seq, target_seq) in enumerate(train_dataloader):
+            model.train()
             input_seq, target_seq = input_seq.to(device), target_seq.to(device)
             optimizer.zero_grad()
             output = model(input_seq)
@@ -245,27 +246,18 @@ def train_model(
             optimizer.step()
             total_train_loss += loss.item()
 
-            if step % args.inference_interval == 0:
-                print(
-                    f"Epoch [{epoch + 1}/{num_epochs}], Step [{step + 1}/{total_steps}], Train Loss: {loss.item():.4f}"
-                )
-                generated_text = model.generate(
-                    inference_text or "",
-                    char_to_idx,
-                    idx_to_char,
-                    max_length=args.inference_length,
-                    temperature=args.temperature,
-                )
-                print(f"\n{generated_text}\n")
+            model.eval()
+            with torch.no_grad():
 
-        if len(train_dataloader):
-            avg_train_loss = total_train_loss / len(train_dataloader)
-
-            print(
-                f"Epoch {epoch + 1}/{num_epochs}, Avg. Train Loss: {avg_train_loss:.4f}\n"
-            )
-
-        total_steps = len(test_dataloader)
+                if step % args.inference_interval == 0:
+                    generated_text = model.generate(
+                        inference_text or "",
+                        char_to_idx,
+                        idx_to_char,
+                        max_length=args.inference_length,
+                        temperature=args.temperature,
+                    )
+                    print(f"\n{generated_text}\n")
 
         model.eval()
         total_test_loss = 0
@@ -279,9 +271,6 @@ def train_model(
                 total_test_loss += test_loss.item()
 
                 if step % args.inference_interval == 0:
-                    print(
-                        f"Epoch [{epoch + 1}/{num_epochs}], Step [{step + 1}/{total_steps}], Test Loss: {loss.item():.4f}"
-                    )
                     generated_text = model.generate(
                         inference_text or "",
                         char_to_idx,
@@ -291,12 +280,21 @@ def train_model(
                     )
                     print(f"\n{generated_text}\n")
 
-        if len(test_dataloader):
-            avg_test_loss = total_test_loss / len(test_dataloader)
+        test_length = len(test_dataloader)
+        train_length = len(train_dataloader)
 
+        if test_length:
+            avg_test_loss = total_test_loss / test_length
+            avg_train_loss = total_train_loss / train_length
             print(
                 f"Epoch {epoch + 1}/{num_epochs}, Avg. Train Loss: {avg_train_loss:.4f}  Avg. Test Loss: {avg_test_loss:.4f}\n"
             )
+        else:
+            if train_length:
+                avg_train_loss = total_train_loss / train_length
+                print(
+                    f"Epoch {epoch + 1}/{num_epochs}, Avg. Train Loss: {avg_train_loss:.4f}  Avg. Test Loss: NA\n"
+                )
 
         torch.save(model.state_dict(), "model.pth")
 
@@ -433,6 +431,7 @@ def main():
     print(f"Dataset: {args.dataset}")
     print(f"Temperature: {args.temperature}")
     print(f"Weight decay: {args.weight_decay}")
+    print(f"Dropout: {args.dropout}")
     print(f"Device: {device}")
     print("------------------\n\n")
 
