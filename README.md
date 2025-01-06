@@ -8,7 +8,7 @@ Implementation of a next character predicting language model using multi-head at
 ## Requirements
 
 ```zsh
-pip install torch einops numpy
+pip install torch einops numpy tensorboard
 ```
 
 ## Usage

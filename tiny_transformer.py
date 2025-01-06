@@ -241,6 +241,7 @@ def train_model(
     idx_to_char,
     device="cpu",
 ):
+
     inference_text = args.inference_text
     writer = None
     if args.tensorboard:
@@ -249,11 +250,10 @@ def train_model(
     tstep = 0
 
     for epoch in range(num_epochs):
-
         total_train_loss = 0
 
         for step, (input_seq, target_seq) in enumerate(train_dataloader):
-            tstep+=1
+            tstep += 1
             model.train()
             input_seq, target_seq = input_seq.to(device), target_seq.to(device)
             optimizer.zero_grad()
@@ -264,15 +264,20 @@ def train_model(
             total_train_loss += loss.item()
 
             grad_norms = compute_grad_norms(model)
-            
             if args.tensorboard:
+                writer.add_scalar("Loss/Train", loss.item(), tstep)
                 for name, value in grad_norms.items():
                     writer.add_scalar(f"Gradient_Norms/{name}", value, tstep)
-
+                for name, param in model.named_parameters():
+                    writer.add_histogram(f"Weights/{name}", param, tstep)
+                    if param.grad is not None:
+                        writer.add_histogram(f"Gradients/{name}", param.grad, tstep)
+                for i, param_group in enumerate(optimizer.param_groups):
+                    writer.add_scalar(f"Learning_Rate/group_{i}", param_group['lr'], tstep)
 
             if step % args.inference_interval == 0:
                 model.eval()
-                with torch.no_grad():            
+                with torch.no_grad():
                     generated_text = model.generate(
                         inference_text or "",
                         char_to_idx,
@@ -293,36 +298,23 @@ def train_model(
                 )
                 total_test_loss += test_loss.item()
 
-                if step % args.inference_interval == 0:
-                    generated_text = model.generate(
-                        inference_text or "",
-                        char_to_idx,
-                        idx_to_char,
-                        max_length=args.inference_length,
-                        temperature=args.temperature,
-                    )
-                    print(f"\n{generated_text}\n")
-
         test_length = len(test_dataloader)
         train_length = len(train_dataloader)
+        avg_test_loss = total_test_loss / test_length if test_length else float('nan')
+        avg_train_loss = total_train_loss / train_length
 
-        if test_length:
-            avg_test_loss = total_test_loss / test_length
-            avg_train_loss = total_train_loss / train_length
-            print(
-                f"Epoch {epoch + 1}/{num_epochs}, Avg. Train Loss: {avg_train_loss:.4f}  Avg. Test Loss: {avg_test_loss:.4f}\n"
-            )
-        else:
-            if train_length:
-                avg_train_loss = total_train_loss / train_length
-                print(
-                    f"Epoch {epoch + 1}/{num_epochs}, Avg. Train Loss: {avg_train_loss:.4f}  Avg. Test Loss: NA\n"
-                )
+        if args.tensorboard:
+            writer.add_scalar("Loss/Avg_Train", avg_train_loss, epoch + 1)
+            writer.add_scalar("Loss/Avg_Test", avg_test_loss, epoch + 1)
 
-        torch.save(model.state_dict(), "model.pth")
+        print(
+            f"Epoch {epoch + 1}/{num_epochs}, Avg. Train Loss: {avg_train_loss:.4f}, Avg. Test Loss: {avg_test_loss:.4f}"
+        )
 
-    writer.close()
+        torch.save(model.state_dict(), f"model_epoch_{epoch+1}.pth")
 
+    if args.tensorboard:
+        writer.close()
 
 
 def main():
