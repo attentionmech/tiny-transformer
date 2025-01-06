@@ -192,7 +192,7 @@ class CharTransformerModel(nn.Module):
     def generate(
         self, start_text, char_to_idx, idx_to_char, max_length=100, temperature=0.3
     ):
-        input_seq = [char_to_idx.get(char, char_to_idx[' ']) for char in start_text]
+        input_seq = [char_to_idx.get(char, char_to_idx[" "]) for char in start_text]
         input_seq = (
             torch.tensor(input_seq).unsqueeze(1).to(next(self.parameters()).device)
         )
@@ -288,7 +288,6 @@ def train_model(
                     )
                     print(f"\n{generated_text}\n")
 
-        
         if len(test_dataloader):
             avg_test_loss = total_test_loss / len(test_dataloader)
 
@@ -358,8 +357,8 @@ def main():
     parser.add_argument(
         "--optimizer",
         type=str,
-        default="adam",
-        choices=["adam", "sgd", "rmsprop"],
+        default="adamw",
+        choices=["adam", "adamw", "sgd", "rmsprop"],
         help="Optimizer type (default adam)",
     )
     parser.add_argument(
@@ -393,7 +392,14 @@ def main():
         "--temperature",
         type=float,
         default=0.6,
-        help="Temperature for sampling during inference (default 0.3)",
+        help="Temperature for sampling during inference",
+    )
+
+    parser.add_argument(
+        "--weight_decay",
+        type=float,
+        default=0.01,
+        help="Weight decay only valid for AdamW right now (defaut: 0.01)",
     )
 
     args = parser.parse_args()
@@ -423,6 +429,7 @@ def main():
     print(f"Optimizer: {args.optimizer}")
     print(f"Dataset: {args.dataset}")
     print(f"Temperature: {args.temperature}")
+    print(f"Weight decay: {args.weight_decay}")
     print(f"Device: {device}")
     print("------------------\n\n")
 
@@ -468,6 +475,11 @@ def main():
 
     if args.optimizer == "adam":
         optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+    if args.optimizer == "adamw":
+        optimizer = optim.AdamW(
+            model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
+        )
+
     elif args.optimizer == "sgd":
         optimizer = optim.SGD(model.parameters(), lr=args.learning_rate)
     elif args.optimizer == "rmsprop":
