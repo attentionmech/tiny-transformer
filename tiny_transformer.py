@@ -5,6 +5,17 @@ from torch.utils.data import Dataset, DataLoader
 import argparse
 import os
 from einops import rearrange
+import torch
+from torch.utils.tensorboard import SummaryWriter
+
+
+def compute_grad_norms(model):
+    grad_norms = {}
+    for name, param in model.named_parameters():
+        if param.grad is not None:
+            grad_norm = torch.norm(param.grad).item()
+            grad_norms[name] = grad_norm
+    return grad_norms
 
 
 def train_test_split(data, test_ratio=0.1):
@@ -228,15 +239,21 @@ def train_model(
     args,
     char_to_idx,
     idx_to_char,
-    inference_text=None,
     device="cpu",
 ):
+    inference_text = args.inference_text
+    writer = None
+    if args.tensorboard:
+        writer = SummaryWriter()
+    
+    tstep = 0
 
     for epoch in range(num_epochs):
 
         total_train_loss = 0
 
         for step, (input_seq, target_seq) in enumerate(train_dataloader):
+            tstep+=1
             model.train()
             input_seq, target_seq = input_seq.to(device), target_seq.to(device)
             optimizer.zero_grad()
@@ -246,10 +263,16 @@ def train_model(
             optimizer.step()
             total_train_loss += loss.item()
 
-            model.eval()
-            with torch.no_grad():
+            grad_norms = compute_grad_norms(model)
+            
+            if args.tensorboard:
+                for name, value in grad_norms.items():
+                    writer.add_scalar(f"Gradient_Norms/{name}", value, tstep)
 
-                if step % args.inference_interval == 0:
+
+            if step % args.inference_interval == 0:
+                model.eval()
+                with torch.no_grad():            
                     generated_text = model.generate(
                         inference_text or "",
                         char_to_idx,
@@ -297,6 +320,9 @@ def train_model(
                 )
 
         torch.save(model.state_dict(), "model.pth")
+
+    writer.close()
+
 
 
 def main():
@@ -380,7 +406,13 @@ def main():
         default="Once upon a time",
         help="Text to start inference from (default: Once upon a time)",
     )
-
+    
+    parser.add_argument(
+        "--tensorboard",
+        type=bool,
+        default=False,
+        help="Export metrics to tensorboard",
+    )
     parser.add_argument(
         "--device",
         type=str,
@@ -435,6 +467,9 @@ def main():
     print(f"Device: {device}")
     print("------------------\n\n")
 
+    if args.tensorboard:
+        print("Please run `tensorboard serve --logdir=runs/` on a separate terminal to monitor.")        
+
     if args.dataset and os.path.exists(args.dataset):
         print("Reading dataset...")
         data = read_data(args.dataset, num_rows=args.num_rows)
@@ -481,7 +516,6 @@ def main():
         optimizer = optim.AdamW(
             model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
         )
-
     elif args.optimizer == "sgd":
         optimizer = optim.SGD(model.parameters(), lr=args.learning_rate)
     elif args.optimizer == "rmsprop":
@@ -498,7 +532,6 @@ def main():
         args,
         char_to_idx,
         idx_to_char,
-        inference_text=args.inference_text,
         device=device,
     )
 
