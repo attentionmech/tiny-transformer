@@ -136,11 +136,14 @@ class TransformerBlock(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x, mask=None):
-        attention_out = self.attention(x, x, x, mask)
-        x = self.layer_norm1(x + self.dropout(attention_out))
 
-        ff_out = self.feed_forward(x)
-        x = self.layer_norm2(x + self.dropout(ff_out))
+        norm_x = self.layer_norm1(x)
+        attention_out = self.attention(norm_x, norm_x, norm_x, mask)
+        x = x + self.dropout(attention_out)
+
+        norm_x = self.layer_norm2(x)
+        ff_out = self.feed_forward(norm_x)
+        x = x + self.dropout(ff_out)
 
         return x
 
