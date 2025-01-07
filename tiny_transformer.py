@@ -269,6 +269,7 @@ def train_model(
             output = model(input_seq)
             loss = criterion(output.reshape(-1, vocab_size), target_seq.reshape(-1))
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
             total_train_loss += loss.item()
 
@@ -510,7 +511,11 @@ def main():
     ).to(device)
 
     for param in model.parameters():
-        torch.nn.init.normal_(param, mean=0.0, std=0.02)
+        if param.dim() == 2:
+            torch.nn.init.xavier_uniform_(param)
+        else:
+            torch.nn.init.zeros_(param)
+
 
     criterion = nn.CrossEntropyLoss()
 
