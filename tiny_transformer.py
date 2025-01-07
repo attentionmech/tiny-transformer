@@ -259,6 +259,8 @@ def train_model(
 
         for step, (input_seq, target_seq) in enumerate(train_dataloader):
             tstep += 1
+            writer.add_scalar(f"Global Step", tstep, tstep)
+
             model.train()
             input_seq, target_seq = input_seq.to(device), target_seq.to(device)
             optimizer.zero_grad()
@@ -331,9 +333,7 @@ def train_model(
 
 def main():
 
-    parser = argparse.ArgumentParser(
-        description="tiny-transformer: Character-level Transformer Language Model Training"
-    )
+    parser = argparse.ArgumentParser(description="tiny-transformer")
     parser.add_argument(
         "--epochs", type=int, default=100, help="Number of epochs (default 100)"
     )
