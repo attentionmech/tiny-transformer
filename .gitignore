@@ -1,3 +1,4 @@
 *.txt
 *.pth
 runs/*
+.idea/

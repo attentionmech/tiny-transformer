@@ -259,7 +259,9 @@ def train_model(
 
         for step, (input_seq, target_seq) in enumerate(train_dataloader):
             tstep += 1
-            writer.add_scalar(f"Global Step", tstep, tstep)
+
+            if args.tensorboard:
+                writer.add_scalar(f"Global Step", tstep, tstep)
 
             model.train()
             input_seq, target_seq = input_seq.to(device), target_seq.to(device)
@@ -270,8 +272,8 @@ def train_model(
             optimizer.step()
             total_train_loss += loss.item()
 
-            grad_norms = compute_grad_norms(model)
             if args.tensorboard:
+                grad_norms = compute_grad_norms(model)
                 writer.add_scalar("Loss/Train", loss.item(), tstep)
                 for name, value in grad_norms.items():
                     writer.add_scalar(f"Gradient_Norms/{name}", value, tstep)
