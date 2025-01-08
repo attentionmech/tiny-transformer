@@ -19,7 +19,7 @@ pip install torch einops numpy tensorboard
 
 ## Results
 
-It's forming words after lot of training, but the coherence is not there. Mostly, to do with hyperparams. Also, unhappy with the speed of it. Will resume it's dev back again after finishing [gpt.c](https://github.com/gpt.c)
+It's forming words after lot of training, but the coherence is not there. Mostly, to do with hyperparams. Also, unhappy with the speed of it. Will resume it's dev back again after finishing [gpt.c](https://github.com/attentionmech/gpt.c)
 
 ## Dataset
 
