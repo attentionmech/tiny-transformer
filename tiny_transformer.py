@@ -4,6 +4,7 @@ import torch
 
 from torch import nn
 import torch.optim as optim
+import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 
 
@@ -45,35 +46,150 @@ class CharDataset(Dataset):
         return torch.tensor(input_seq), torch.tensor(target_seq)
 
 
-class CharTransformerModel(nn.Module):
+class TTReLU(torch.nn.Module):
+    def forward(self, x):
+        return torch.where(x > 0, x, torch.zeros_like(x))
+
+
+class TTLinear(torch.nn.Module):
+    def __init__(self, in_features, out_features, bias=True):
+        super().__init__()
+        self.weight = torch.nn.Parameter(torch.empty(out_features, in_features))
+        torch.nn.init.kaiming_uniform_(self.weight, a=5**0.5)
+
+        if bias:
+            self.bias = torch.nn.Parameter(torch.empty(out_features))
+            torch.nn.init.zeros_(self.bias)
+        else:
+            self.bias = None
+
+    def forward(self, x):
+        x = x @ self.weight.T
+        if self.bias is not None:
+            x += self.bias
+        return x
+
+
+class TTLayerNorm(torch.nn.Module):
+    def __init__(self, normalized_shape, eps=1e-5):
+        super().__init__()
+        self.eps = eps
+        self.gamma = torch.nn.Parameter(torch.ones(normalized_shape))
+        self.beta = torch.nn.Parameter(torch.zeros(normalized_shape))
+
+    def forward(self, x):
+        mean = x.mean(dim=-1, keepdim=True)
+        std = x.std(dim=-1, keepdim=True, unbiased=False)
+        return self.gamma * (x - mean) / (std + self.eps) + self.beta
+
+
+class TTEmbedding(torch.nn.Module):
+    def __init__(self, num_embeddings, embedding_dim):
+        super().__init__()
+        self.weight = torch.nn.Parameter(torch.randn(num_embeddings, embedding_dim))
+
+    def forward(self, x):
+        return self.weight[x]
+
+
+class TTDropout(torch.nn.Module):
+    def __init__(self, p=0.5):
+        super().__init__()
+        self.p = p
+
+    def forward(self, x):
+        if not self.training:
+            return x
+        mask = (torch.rand_like(x) > self.p).float()
+        return mask * x / (1 - self.p)
+
+
+class TTMultiheadAttention(torch.nn.Module):
+    def __init__(self, embed_dim, num_heads, dropout=0.1):
+        super().__init__()
+        assert (
+            embed_dim % num_heads == 0
+        ), "Embedding dimension must be divisible by number of heads"
+        self.num_heads = num_heads
+        self.head_dim = embed_dim // num_heads
+        self.scale = self.head_dim**-0.5
+        self.q_proj = TTLinear(embed_dim, embed_dim, bias=False)
+        self.k_proj = TTLinear(embed_dim, embed_dim, bias=False)
+        self.v_proj = TTLinear(embed_dim, embed_dim, bias=False)
+        self.out_proj = TTLinear(embed_dim, embed_dim, bias=False)
+        self.dropout = TTDropout(dropout)
+
+    def forward(self, query, key, value):
+        batch_size, seq_len, embed_dim = query.shape
+        q = (
+            self.q_proj(query)
+            .view(batch_size, seq_len, self.num_heads, self.head_dim)
+            .transpose(1, 2)
+        )
+        k = (
+            self.k_proj(key)
+            .view(batch_size, seq_len, self.num_heads, self.head_dim)
+            .transpose(1, 2)
+        )
+        v = (
+            self.v_proj(value)
+            .view(batch_size, seq_len, self.num_heads, self.head_dim)
+            .transpose(1, 2)
+        )
+
+        scores = (q @ k.transpose(-2, -1)) * self.scale
+        attn_weights = F.softmax(scores, dim=-1)
+        attn_output = (
+            (attn_weights @ v)
+            .transpose(1, 2)
+            .contiguous()
+            .view(batch_size, seq_len, embed_dim)
+        )
+        return self.out_proj(self.dropout(attn_output))
+
+
+class TTFeedForward(torch.nn.Module):
+    def __init__(self, embed_dim, ff_hidden_dim, dropout=0.2):
+        super().__init__()
+        self.fc1 = TTLinear(embed_dim, ff_hidden_dim)
+        self.relu = TTReLU()
+        self.dropout1 = TTDropout(dropout)
+        self.fc2 = TTLinear(ff_hidden_dim, embed_dim)
+        self.dropout2 = TTDropout(dropout)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.relu(x)
+        x = self.dropout1(x)
+        x = self.fc2(x)
+        x = self.dropout2(x)
+        return x
+
+
+class CharTransformerModel(torch.nn.Module):
     def __init__(
         self, embed_dim, num_heads, ff_hidden_dim, vocab_size, seq_len, dropout=0.2
     ):
         super().__init__()
-        self.token_embedding = nn.Embedding(vocab_size, embed_dim)
-        self.pos_embedding = nn.Parameter(torch.randn(1, seq_len, embed_dim))
-        self.attention = nn.MultiheadAttention(
-            embed_dim, num_heads, batch_first=True, dropout=dropout
-        )
-        self.ff = nn.Sequential(
-            nn.Linear(embed_dim, ff_hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(ff_hidden_dim, embed_dim),
-            nn.Dropout(dropout),
-        )
-        self.layer_norm1 = nn.LayerNorm(embed_dim)
-        self.layer_norm2 = nn.LayerNorm(embed_dim)
-        self.output_layer = nn.Linear(embed_dim, vocab_size)
-        self.dropout = nn.Dropout(dropout)
+        self.token_embedding = TTEmbedding(vocab_size, embed_dim)
+        self.pos_embedding = torch.nn.Parameter(torch.randn(1, seq_len, embed_dim))
+        self.attention = TTMultiheadAttention(embed_dim, num_heads, dropout)
+        self.ff = TTFeedForward(embed_dim, ff_hidden_dim, dropout)
+        self.layer_norm1 = TTLayerNorm(embed_dim)
+        self.layer_norm2 = TTLayerNorm(embed_dim)
+        self.output_layer = TTLinear(embed_dim, vocab_size)
+        self.dropout = TTDropout(dropout)
 
     def forward(self, x):
         x = self.token_embedding(x) + self.pos_embedding
         x = self.dropout(x)
-        attn_output, _ = self.attention(x, x, x)
+
+        attn_output = self.attention(x, x, x)
         x = self.layer_norm1(x + attn_output)
+
         ff_output = self.ff(x)
         x = self.layer_norm2(x + ff_output)
+
         return self.output_layer(x)
 
 
