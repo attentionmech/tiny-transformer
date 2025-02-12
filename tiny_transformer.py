@@ -46,23 +46,30 @@ class CharDataset(Dataset):
 
 
 class CharTransformerModel(nn.Module):
-
-    def __init__(self, embed_dim, num_heads, ff_hidden_dim, vocab_size, seq_len):
+    def __init__(
+        self, embed_dim, num_heads, ff_hidden_dim, vocab_size, seq_len, dropout=0.2
+    ):
         super().__init__()
         self.token_embedding = nn.Embedding(vocab_size, embed_dim)
         self.pos_embedding = nn.Parameter(torch.randn(1, seq_len, embed_dim))
-        self.attention = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)
+        self.attention = nn.MultiheadAttention(
+            embed_dim, num_heads, batch_first=True, dropout=dropout
+        )
         self.ff = nn.Sequential(
             nn.Linear(embed_dim, ff_hidden_dim),
             nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(ff_hidden_dim, embed_dim),
+            nn.Dropout(dropout),
         )
         self.layer_norm1 = nn.LayerNorm(embed_dim)
         self.layer_norm2 = nn.LayerNorm(embed_dim)
         self.output_layer = nn.Linear(embed_dim, vocab_size)
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
         x = self.token_embedding(x) + self.pos_embedding
+        x = self.dropout(x)
         attn_output, _ = self.attention(x, x, x)
         x = self.layer_norm1(x + attn_output)
         ff_output = self.ff(x)
@@ -93,7 +100,8 @@ def train(
             optimizer.step()
             total_loss += loss.item()
 
-            if i % 1000 == 0:  # Print predictions every 100 steps
+            if i % 1000 == 0:
+
                 sample = logits[0].argmax(dim=-1).cpu().numpy()
                 decode = "".join([idx_to_char[i] for i in sample])
 
@@ -190,9 +198,7 @@ def main():
         choices=["adam", "adamw", "sgd", "rmsprop"],
         help="Optimizer type (default adam)",
     )
-    parser.add_argument(
-        "--dropout", type=float, default=0.1, help="Dropout rate (default 0.2)"
-    )
+
     parser.add_argument(
         "--seed", type=int, default=None, help="Random seed for reproducibility"
     )
@@ -216,13 +222,6 @@ def main():
         type=float,
         default=0.6,
         help="Temperature for sampling during inference",
-    )
-
-    parser.add_argument(
-        "--weight_decay",
-        type=float,
-        default=0.0,
-        help="Weight decay only valid for AdamW right now (defaut: 0.01)",
     )
 
     args = parser.parse_args()
@@ -249,8 +248,6 @@ def main():
     print(f"Optimizer: {args.optimizer}")
     print(f"Dataset: {args.dataset}")
     print(f"Temperature: {args.temperature}")
-    print(f"Weight decay: {args.weight_decay}")
-    print(f"Dropout: {args.dropout}")
     print(f"Device: {device}")
 
     if args.dataset and os.path.exists(args.dataset):
@@ -293,7 +290,9 @@ def main():
         optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
     if args.optimizer == "adamw":
         optimizer = optim.AdamW(
-            model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
+            model.parameters(),
+            lr=args.learning_rate,
+            weight_decay=0.01,
         )
     elif args.optimizer == "sgd":
         optimizer = optim.SGD(model.parameters(), lr=args.learning_rate)
