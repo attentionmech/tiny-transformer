@@ -2,21 +2,9 @@ import os
 import argparse
 import torch
 
-from einops import rearrange
 from torch import nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
-from torch.utils.tensorboard import SummaryWriter
-from torch.optim.lr_scheduler import LambdaLR, CosineAnnealingLR
-
-
-def compute_grad_norms(model):
-    grad_norms = {}
-    for name, param in model.named_parameters():
-        if param.requires_grad and param.grad is not None:
-            grad_norm = torch.norm(param.grad).item()
-            grad_norms[name] = grad_norm
-    return grad_norms
 
 
 def train_test_split(data, test_ratio=0.1):
@@ -57,177 +45,60 @@ class CharDataset(Dataset):
         return torch.tensor(input_seq), torch.tensor(target_seq)
 
 
-def create_causal_mask(seq_len):
-    mask = torch.tril(torch.ones((seq_len, seq_len)))
-    mask = mask.unsqueeze(0).unsqueeze(0)  # Shape: [1, 1, seq_len, seq_len]
-    return mask
-
-
-class MultiHeadSelfAttention(nn.Module):
-    def __init__(self, emb_size, num_heads, dropout):
-        super(MultiHeadSelfAttention, self).__init__()
-        self.num_heads = num_heads
-        self.emb_size = emb_size
-        self.head_dim = emb_size // num_heads
-
-        assert (
-            emb_size % num_heads == 0
-        ), f"embedding size {emb_size} must be divisible by num_heads {num_heads}"
-
-        self.query = nn.Linear(emb_size, emb_size)
-        self.key = nn.Linear(emb_size, emb_size)
-        self.value = nn.Linear(emb_size, emb_size)
-
-        self.fc_out = nn.Linear(emb_size, emb_size)
-        self.attn_dropout = nn.Dropout(dropout)
-
-    def forward(self, values, keys, query, mask=None):
-
-        values = rearrange(
-            values,
-            "batch_size value_len (num_heads head_dim) -> num_heads batch_size value_len head_dim",
-            num_heads=self.num_heads,
-        )
-        keys = rearrange(
-            keys,
-            "batch_size key_len (num_heads head_dim) -> num_heads batch_size key_len head_dim",
-            num_heads=self.num_heads,
-        )
-        query = rearrange(
-            query,
-            "batch_size query_len (num_heads head_dim) -> num_heads batch_size query_len head_dim",
-            num_heads=self.num_heads,
-        )
-
-        score = torch.matmul(
-            query,
-            rearrange(
-                keys,
-                "batch_size num_heads key_len head_dim -> batch_size num_heads head_dim key_len",
-            ),
-        )
-
-        if mask is not None:
-            score = score.masked_fill(mask == 0, float("-inf"))
-
-        attention = torch.softmax(score / (self.head_dim ** (1 / 2)), dim=-1)
-
-        attention = self.attn_dropout(attention)
-
-        out = torch.matmul(attention, values)
-
-        out = rearrange(
-            out,
-            "num_heads batch_size query_len head_dim -> batch_size query_len (num_heads head_dim)",
-        )
-
-        out = self.fc_out(out)
-        return out
-
-
-class FeedForward(nn.Module):
-    def __init__(self, emb_size, hidden_size):
-        super(FeedForward, self).__init__()
-        self.fc1 = nn.Linear(emb_size, hidden_size)
-        self.fc2 = nn.Linear(hidden_size, emb_size)
-        self.gelu = nn.GELU()
-
-    def forward(self, x):
-        return self.fc2(self.gelu(self.fc1(x)))
-
-
-class TransformerBlock(nn.Module):
-    def __init__(self, emb_size, num_heads, hidden_size, dropout=0.1):
-        super(TransformerBlock, self).__init__()
-        self.attention = MultiHeadSelfAttention(emb_size, num_heads, dropout)
-        self.feed_forward = FeedForward(emb_size, hidden_size)
-
-        self.layer_norm1 = nn.LayerNorm(emb_size)
-        self.layer_norm2 = nn.LayerNorm(emb_size)
-
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, x, mask=None):
-
-        norm_x = self.layer_norm1(x)
-        attention_out = self.attention(norm_x, norm_x, norm_x, mask)
-        x = x + self.dropout(attention_out)
-
-        norm_x = self.layer_norm2(x)
-        ff_out = self.feed_forward(norm_x)
-        x = x + self.dropout(ff_out)
-
-        return x
-
-
 class CharTransformerModel(nn.Module):
-    def __init__(
-        self,
-        vocab_size,
-        seq_len,
-        emb_size=32,
-        num_heads=2,
-        num_layers=1,
-        hidden_size=64,
-        dropout=0.1,
-        device="cpu",
-    ):
-        super(CharTransformerModel, self).__init__()
-        self.embedding = nn.Embedding(vocab_size, emb_size).to(device)
-        self.positional_encoding = nn.Embedding(seq_len, emb_size)
 
-        self.transformer_blocks = nn.ModuleList(
-            [
-                TransformerBlock(emb_size, num_heads, hidden_size, dropout)
-                for _ in range(num_layers)
-            ]
+    def __init__(self, embed_dim, num_heads, ff_hidden_dim, vocab_size, seq_len):
+        super().__init__()
+        self.token_embedding = nn.Embedding(vocab_size, embed_dim)
+        self.pos_embedding = nn.Parameter(torch.randn(1, seq_len, embed_dim))
+        self.attention = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)
+        self.ff = nn.Sequential(
+            nn.Linear(embed_dim, ff_hidden_dim),
+            nn.ReLU(),
+            nn.Linear(ff_hidden_dim, embed_dim),
         )
-
-        self.fc_out = nn.Linear(emb_size, vocab_size)
+        self.layer_norm1 = nn.LayerNorm(embed_dim)
+        self.layer_norm2 = nn.LayerNorm(embed_dim)
+        self.output_layer = nn.Linear(embed_dim, vocab_size)
 
     def forward(self, x):
-        batch_size, seq_len = x.shape
+        x = self.token_embedding(x) + self.pos_embedding
+        attn_output, _ = self.attention(x, x, x)
+        x = self.layer_norm1(x + attn_output)
+        ff_output = self.ff(x)
+        x = self.layer_norm2(x + ff_output)
+        return self.output_layer(x)
 
-        positions = (
-            torch.arange(0, seq_len, device=x.device)
-            .unsqueeze(1)
-            .expand(seq_len, batch_size)
-            .T
-        )
-        embedded = self.embedding(x) + self.positional_encoding(positions)
 
-        mask = create_causal_mask(seq_len).to(x.device)
-        transformer_output = embedded
+def train(
+    model, epochs, device, optimizer, criterion, train_loader, val_loader, vocab_size
+):
+    model.train()
+    for epoch in range(epochs):
+        total_loss = 0
+        for i, (x, y) in enumerate(train_loader):
+            x, y = x.to(device), y.to(device)
+            optimizer.zero_grad()
+            logits = model(x)
+            loss = criterion(logits.view(-1, vocab_size), y.view(-1))
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
 
-        for block in self.transformer_blocks:
-            transformer_output = block(transformer_output, mask)
+        print(f"Epoch {epoch+1}, Avg Train Loss: {total_loss / len(train_loader):.4f}")
+        evaluate(model, criterion, val_loader, device, vocab_size)
 
-        output = self.fc_out(transformer_output)
-        return output
 
-    def generate(
-        self, start_text, char_to_idx, idx_to_char, max_length=100, temperature=0.3
-    ):
-        input_seq = [char_to_idx.get(char, char_to_idx[" "]) for char in start_text]
-        input_seq = (
-            torch.tensor(input_seq).unsqueeze(1).to(next(self.parameters()).device)
-        )
-        generated_text = start_text
-        for _ in range(max_length):
-            output = self(input_seq)
-            last_char_logits = output[-1, 0, :]
-
-            last_char_logits = last_char_logits / temperature
-
-            probs = torch.softmax(last_char_logits, dim=-1)
-
-            predicted_idx = torch.multinomial(probs, 1).item()
-            predicted_char = idx_to_char[predicted_idx]
-            generated_text += predicted_char
-            input_seq = torch.cat(
-                [input_seq, torch.tensor([[predicted_idx]]).to(input_seq.device)], dim=0
-            )
-        return generated_text
+def evaluate(model, criterion, val_loader, device, vocab_size):
+    model.eval()
+    with torch.no_grad():
+        total_loss = 0
+        for x, y in val_loader:
+            x, y = x.to(device), y.to(device)
+            logits = model(x)
+            loss = criterion(logits.view(-1, vocab_size), y.view(-1))
+            total_loss += loss.item()
+        print(f"Validation Loss: {total_loss / len(val_loader):.4f}\n")
 
 
 def train_model(
@@ -238,107 +109,25 @@ def train_model(
     optimizer,
     num_epochs,
     vocab_size,
-    args,
-    char_to_idx,
-    idx_to_char,
-    device="cpu",
+    device="mps",
 ):
-
-    inference_text = args.inference_text
-    writer = None
-    if args.tensorboard:
-        writer = SummaryWriter()
-
-    tstep = 0
-    scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=1e-6)
-
-    torch.save(model.state_dict(), f"model.pth")
-
-    for epoch in range(num_epochs):
-        total_train_loss = 0
-
-        for step, (input_seq, target_seq) in enumerate(train_dataloader):
-            tstep += 1
-
-            if args.tensorboard:
-                writer.add_scalar(f"Global Step", tstep, tstep)
-
-            model.train()
-            input_seq, target_seq = input_seq.to(device), target_seq.to(device)
-            optimizer.zero_grad()
-            output = model(input_seq)
-            loss = criterion(output.reshape(-1, vocab_size), target_seq.reshape(-1))
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
-            total_train_loss += loss.item()
-
-            if args.tensorboard:
-                grad_norms = compute_grad_norms(model)
-                writer.add_scalar("Loss/Train", loss.item(), tstep)
-                for name, value in grad_norms.items():
-                    writer.add_scalar(f"Gradient_Norms/{name}", value, tstep)
-                for name, param in model.named_parameters():
-                    writer.add_histogram(f"Weights/{name}", param, tstep)
-                    if param.grad is not None:
-                        writer.add_histogram(f"Gradients/{name}", param.grad, tstep)
-                for i, param_group in enumerate(optimizer.param_groups):
-                    writer.add_scalar(
-                        f"Learning_Rate/group_{i}", param_group["lr"], tstep
-                    )
-
-            if step % args.inference_interval == 0:
-                model.eval()
-                with torch.no_grad():
-                    generated_text = model.generate(
-                        inference_text or "",
-                        char_to_idx,
-                        idx_to_char,
-                        max_length=args.inference_length,
-                        temperature=args.temperature,
-                    )
-                    print(f"\n{generated_text}\n")
-
-        scheduler.step()
-
-        model.eval()
-        total_test_loss = 0
-        with torch.no_grad():
-            for step, (input_seq, target_seq) in enumerate(test_dataloader):
-                input_seq, target_seq = input_seq.to(device), target_seq.to(device)
-                output = model(input_seq)
-                test_loss = criterion(
-                    output.reshape(-1, vocab_size), target_seq.reshape(-1)
-                )
-                if args.tensorboard:
-                    writer.add_scalar("Loss/Test", test_loss.item(), tstep)
-
-                total_test_loss += test_loss.item()
-
-        test_length = len(test_dataloader)
-        train_length = len(train_dataloader)
-        avg_test_loss = total_test_loss / test_length if test_length else 0.0
-        avg_train_loss = total_train_loss / train_length
-
-        if args.tensorboard:
-            writer.add_scalar("Loss/Avg_Train", avg_train_loss, epoch + 1)
-            writer.add_scalar("Loss/Avg_Test", avg_test_loss, epoch + 1)
-
-        print(
-            f"Epoch {epoch + 1}/{num_epochs}, Avg. Train Loss: {avg_train_loss:.4f}, Avg. Test Loss: {avg_test_loss:.4f}"
-        )
-
-        torch.save(model.state_dict(), f"model.pth")
-
-    if args.tensorboard:
-        writer.close()
+    train(
+        model,
+        num_epochs,
+        device,
+        optimizer,
+        criterion,
+        train_dataloader,
+        test_dataloader,
+        vocab_size,
+    )
 
 
 def main():
 
     parser = argparse.ArgumentParser(description="tiny-transformer")
     parser.add_argument(
-        "--epochs", type=int, default=100, help="Number of epochs (default 100)"
+        "--epochs", type=int, default=10, help="Number of epochs (default 100)"
     )
     parser.add_argument(
         "--batch_size",
@@ -347,27 +136,27 @@ def main():
         help="Batch size (default 64)",
     )
     parser.add_argument(
-        "--seq_length", type=int, default=16, help="Sequence length (default 16)"
+        "--seq_length", type=int, default=128, help="Sequence length (default 16)"
     )
     parser.add_argument(
-        "--learning_rate", type=float, default=1e-3, help="Learning rate (default 1e-3)"
+        "--learning_rate", type=float, default=3e-4, help="Learning rate (default 1e-3)"
     )
     parser.add_argument(
-        "--embedding_size", type=int, default=300, help="Embedding size (default 300)"
+        "--embedding_size", type=int, default=128, help="Embedding size (default 300)"
     )
     parser.add_argument(
-        "--num_heads", type=int, default=6, help="Number of attention heads (default 6)"
+        "--num_heads", type=int, default=4, help="Number of attention heads (default 6)"
     )
     parser.add_argument(
         "--num_layers",
         type=int,
-        default=6,
+        default=1,
         help="Number of transformer layers (default 6)",
     )
     parser.add_argument(
         "--hidden_size",
         type=int,
-        default=64,
+        default=256,
         help="Hidden size of transformer layers (default 64)",
     )
     parser.add_argument(
@@ -377,18 +166,6 @@ def main():
         help="Number of rows from dataset to use (default 100)",
     )
     parser.add_argument(
-        "--inference_interval",
-        type=int,
-        default=500,
-        help="Number of iterations between inference",
-    )
-    parser.add_argument(
-        "--inference_length",
-        type=int,
-        default=100,
-        help="Number of characters to generate during inference",
-    )
-    parser.add_argument(
         "--optimizer",
         type=str,
         default="adamw",
@@ -396,7 +173,7 @@ def main():
         help="Optimizer type (default adam)",
     )
     parser.add_argument(
-        "--dropout", type=float, default=0.2, help="Dropout rate (default 0.2)"
+        "--dropout", type=float, default=0.1, help="Dropout rate (default 0.2)"
     )
     parser.add_argument(
         "--seed", type=int, default=None, help="Random seed for reproducibility"
@@ -407,19 +184,7 @@ def main():
         default=None,
         help="Dataset to use for training",
     )
-    parser.add_argument(
-        "--inference_text",
-        type=str,
-        default="Once upon a time",
-        help="Text to start inference from (default: Once upon a time)",
-    )
 
-    parser.add_argument(
-        "--tensorboard",
-        type=bool,
-        default=False,
-        help="Export metrics to tensorboard",
-    )
     parser.add_argument(
         "--device",
         type=str,
@@ -438,7 +203,7 @@ def main():
     parser.add_argument(
         "--weight_decay",
         type=float,
-        default=0.01,
+        default=0.0,
         help="Weight decay only valid for AdamW right now (defaut: 0.01)",
     )
 
@@ -463,9 +228,6 @@ def main():
     print(f"Number of Heads: {args.num_heads}")
     print(f"Number of Layers(Blocks): {args.num_layers}")
     print(f"MLP Layer Size: {args.hidden_size}")
-    print(f"Inference Interval: {args.inference_interval}")
-    print(f"Inference Length: {args.inference_length}")
-    print(f"Inference Text: {args.inference_text}")
     print(f"Optimizer: {args.optimizer}")
     print(f"Dataset: {args.dataset}")
     print(f"Temperature: {args.temperature}")
@@ -500,22 +262,12 @@ def main():
     )
 
     model = CharTransformerModel(
-        vocab_size,
-        seq_len=args.seq_length,
-        emb_size=args.embedding_size,
+        embed_dim=args.embedding_size,
         num_heads=args.num_heads,
-        num_layers=args.num_layers,
-        hidden_size=args.hidden_size,
-        dropout=args.dropout,
-        device=device,
+        ff_hidden_dim=args.hidden_size,
+        vocab_size=vocab_size,
+        seq_len=args.seq_length,
     ).to(device)
-
-    for param in model.parameters():
-        if param.dim() == 2:
-            torch.nn.init.xavier_uniform_(param)
-        else:
-            torch.nn.init.zeros_(param)
-
 
     criterion = nn.CrossEntropyLoss()
 
@@ -538,9 +290,6 @@ def main():
         optimizer,
         args.epochs,
         vocab_size,
-        args,
-        char_to_idx,
-        idx_to_char,
         device=device,
     )
 
