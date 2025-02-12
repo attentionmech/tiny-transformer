@@ -313,12 +313,7 @@ def main():
     parser.add_argument(
         "--num_heads", type=int, default=4, help="Number of attention heads (default 6)"
     )
-    parser.add_argument(
-        "--num_layers",
-        type=int,
-        default=1,
-        help="Number of transformer layers (default 6)",
-    )
+
     parser.add_argument(
         "--hidden_size",
         type=int,
@@ -339,9 +334,6 @@ def main():
         help="Optimizer type (default adam)",
     )
 
-    parser.add_argument(
-        "--seed", type=int, default=None, help="Random seed for reproducibility"
-    )
     parser.add_argument(
         "--dataset",
         type=str,
@@ -366,9 +358,6 @@ def main():
 
     args = parser.parse_args()
 
-    if args.seed is not None:
-        torch.manual_seed(args.seed)
-
     device = torch.device(
         args.device
         if torch.backends.mps.is_available() or args.device == "cpu"
@@ -383,7 +372,6 @@ def main():
     print(f"Learning Rate: {args.learning_rate}")
     print(f"Embedding Size: {args.embedding_size}")
     print(f"Number of Heads: {args.num_heads}")
-    print(f"Number of Layers(Blocks): {args.num_layers}")
     print(f"MLP Layer Size: {args.hidden_size}")
     print(f"Optimizer: {args.optimizer}")
     print(f"Dataset: {args.dataset}")
