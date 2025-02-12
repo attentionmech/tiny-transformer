@@ -87,6 +87,8 @@ def train(
     val_loader,
     vocab_size,
     idx_to_char,
+    char_to_idx,
+    seq_len,
 ):
     model.train()
     for epoch in range(epochs):
@@ -101,13 +103,31 @@ def train(
             total_loss += loss.item()
 
             if i % 1000 == 0:
+                model.eval()
+                with torch.no_grad():
+                    seed_text = "Once upon a time "
+                    input_ids = [char_to_idx[c] for c in seed_text]
+                    if len(input_ids) < seq_len:
+                        input_ids = [0] * (seq_len - len(input_ids)) + input_ids
 
-                sample = logits[0].argmax(dim=-1).cpu().numpy()
-                decode = "".join([idx_to_char[i] for i in sample])
+                    temperature = 0.6
+                    for _ in range(100):
+                        x_infer = (
+                            torch.tensor(input_ids[-seq_len:], dtype=torch.long)
+                            .unsqueeze(0)
+                            .to(device)
+                        )
+                        logits = model(x_infer)
+                        probs = (logits[0, -1] / temperature).softmax(dim=-1)
+                        next_token = torch.multinomial(probs, num_samples=1).item()
+                        input_ids.append(next_token)
 
-                print(
-                    f"Epoch {epoch+1}, Step {i}, Loss: {loss.item():.4f}, Prediction: {(decode)}\n"
-                )
+                    generated_text = "".join(idx_to_char[i] for i in input_ids)
+                    print(
+                        f"Epoch {epoch+1}, Step {i}, Loss: {loss.item():.4f}, Generated Text: {generated_text.strip()}\n"
+                    )
+
+                    model.train()
 
         print(f"Epoch {epoch+1}, Avg Train Loss: {total_loss / len(train_loader):.4f}")
         evaluate(model, criterion, val_loader, device, vocab_size)
@@ -134,6 +154,8 @@ def train_model(
     num_epochs,
     vocab_size,
     idx_to_char,
+    char_to_idx,
+    seq_len,
     device="mps",
 ):
     train(
@@ -146,6 +168,8 @@ def train_model(
         test_dataloader,
         vocab_size,
         idx_to_char,
+        char_to_idx,
+        seq_len,
     )
 
 
@@ -162,7 +186,7 @@ def main():
         help="Batch size (default 64)",
     )
     parser.add_argument(
-        "--seq_length", type=int, default=32, help="Sequence length (default 16)"
+        "--seq_length", type=int, default=64, help="Sequence length (default 16)"
     )
     parser.add_argument(
         "--learning_rate", type=float, default=3e-4, help="Learning rate (default 1e-3)"
@@ -308,6 +332,8 @@ def main():
         args.epochs,
         vocab_size,
         idx_to_char,
+        char_to_idx,
+        args.seq_length,
         device=device,
     )
 
