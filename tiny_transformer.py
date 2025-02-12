@@ -71,7 +71,15 @@ class CharTransformerModel(nn.Module):
 
 
 def train(
-    model, epochs, device, optimizer, criterion, train_loader, val_loader, vocab_size
+    model,
+    epochs,
+    device,
+    optimizer,
+    criterion,
+    train_loader,
+    val_loader,
+    vocab_size,
+    idx_to_char,
 ):
     model.train()
     for epoch in range(epochs):
@@ -84,6 +92,14 @@ def train(
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
+
+            if i % 1000 == 0:  # Print predictions every 100 steps
+                sample = logits[0].argmax(dim=-1).cpu().numpy()
+                decode = "".join([idx_to_char[i] for i in sample])
+
+                print(
+                    f"Epoch {epoch+1}, Step {i}, Loss: {loss.item():.4f}, Prediction: {(decode)}\n"
+                )
 
         print(f"Epoch {epoch+1}, Avg Train Loss: {total_loss / len(train_loader):.4f}")
         evaluate(model, criterion, val_loader, device, vocab_size)
@@ -109,6 +125,7 @@ def train_model(
     optimizer,
     num_epochs,
     vocab_size,
+    idx_to_char,
     device="mps",
 ):
     train(
@@ -120,6 +137,7 @@ def train_model(
         train_dataloader,
         test_dataloader,
         vocab_size,
+        idx_to_char,
     )
 
 
@@ -136,7 +154,7 @@ def main():
         help="Batch size (default 64)",
     )
     parser.add_argument(
-        "--seq_length", type=int, default=128, help="Sequence length (default 16)"
+        "--seq_length", type=int, default=32, help="Sequence length (default 16)"
     )
     parser.add_argument(
         "--learning_rate", type=float, default=3e-4, help="Learning rate (default 1e-3)"
@@ -290,6 +308,7 @@ def main():
         optimizer,
         args.epochs,
         vocab_size,
+        idx_to_char,
         device=device,
     )
 
