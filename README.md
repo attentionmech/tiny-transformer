@@ -17,6 +17,8 @@ pip install torch einops numpy tensorboard
  python tiny_transformer.py --epochs 100 --dataset assets/tinystories.txt --num_rows 100
 ```
 
+Note: in case you are on windows/linux you might need to redownload the tinystories dataset since the committed encoding of tinystories.txt is mac-compatible.
+
 ## Results
 
 It's forming words after lot of training, but the coherence is not there. Mostly, to do with hyperparams. Also, unhappy with the speed of it. Will resume it's dev back again after finishing [gpt.c](https://github.com/attentionmech/gpt.c)
