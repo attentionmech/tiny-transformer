@@ -1,6 +1,6 @@
 # tiny-transformer
 
-Implementation of a next character predicting language model using multi-head attention transformer. The goal of this is to allow observation on what is the network's capability while training (inspired from nanoGPT train.py).
+Implementation of a next character predicting language model using multi-head attention transformer (1-block only). The goal of this is to allow observation on what is the network's capability while training (inspired from nanoGPT train.py).
 
 ![demo](assets/demo.gif)
 
